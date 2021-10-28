@@ -1,56 +1,60 @@
 clear
 close all
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-FC_all=rand(65, 253)*2-1;
-NFscore_all=rand(65, 1);
-mask_train=[true(41,1); false(24,1)];
+%generation of dummy data 
+FC_all=rand(65, 253)*2-1; %functional connectivity
+NFscore_all=rand(65, 1); %NF aptitude score
+mask_train=[true(41,1); false(24,1)]; %41 training data and 24 test data
 
-X_train = FC_all(mask_train,:);
-Y_train = NFscore_all(mask_train);
-N_train = length(Y_train);
-X_test = FC_all(~mask_train,:);
-Y_test = NFscore_all(~mask_train);
+X_train = FC_all(mask_train,:); %explanatory variable of training data (discovery dataset)
+Y_train = NFscore_all(mask_train); %objective variable of training data (discovery dataset)
+N_train = length(Y_train); %number of training data (discovery dataset)
+X_test = FC_all(~mask_train,:); %explanatory variable of test data (independent dataset)
+Y_test = NFscore_all(~mask_train); %objective variable of test data (independent dataset)
 
-var_idx = cell(10000000,1);
+var_idx = cell(27000000,1));
 idx = 0;
-for p = 1:28
+for p = 1:28 %8 choose 2
     tmp = combnk(1:28,p);
     for k = 1:size(tmp,1)
         idx = idx+1;
-        var_idx{idx} = tmp(k,:);
+        var_idx{idx} = tmp(k,:); %sets of FCs from all 28 FCs
     end
 end
-var_idx(idx+1:end) = [];
+var_idx(idx+1:end) = []; 
 MaxK = length(var_idx);
-Fitness = nan(1,MaxK);
+Fitness = nan(1,MaxK); %store the result
 for k = 1:MaxK
 	if mod(k, 1000000)==0
-	disp([k,MaxK])
+	disp([k,MaxK]) %show progress
 	end
     mask_var = false(1,28);
     mask_var(var_idx{k}) = true;
     Y_pred = nan(size(Y_train));
-    for n = 1:N_train
-        x1 = X_train(:,mask_var);
-        x1(n,:) = [];
-        y1 = Y_train;
-        y1(n) = [];
-        [~,~,~,~,betaPLS] = plsregress(x1,y1,1);
-        x0 = X_train(n,mask_var);
-        Y_pred(n) = [ones(size(x0,1),1), x0]*betaPLS;
+
+    %LOOCV to choose the best combination of FCs
+    for n = 1:N_train 
+        x1 = X_train(:,mask_var);  %explanatory variable of training data
+        x1(n,:) = []; %remove 1 sample
+        y1 = Y_train; %objective variable of training data
+        y1(n) = []; %remove 1 sample
+        [~,~,~,~,betaPLS] = plsregress(x1,y1,1); %training PLS model
+        x0 = X_train(n,mask_var); %test data
+        Y_pred(n) = [ones(size(x0,1),1), x0]*betaPLS; %prediction of PLS model for left 1 sample
     end
-    [Fitness(k),~] = corr(Y_train, Y_pred, 'type', 'Spearman');
+    [Fitness(k),~] = corr(Y_train, Y_pred, 'type', 'Spearman'); %correlation between true and predicted NF score
 end
 %
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%5
 
-[~,max_index]=max(Fitness);
+[~,max_index]=max(Fitness); %take best index
 %[~,sort_Fitness]=sort(Fitness,'descend');
 %for i_search=1:1000
 %max_index=sort_Fitness(i_search);
-var_best = var_idx{max_index};
+var_best = var_idx{max_index}; %best combination of FCs
+
+%evaluate the best model 
 for n = 1:N_train
     x1 = X_train(:,var_best);
     x1(n,:) = [];
@@ -60,10 +64,11 @@ for n = 1:N_train
     x0 = X_train(n,var_best);
     Y_pred(n) = [ones(size(x0,1),1), x0]*betaPLS;
 end
+
+%scatter plot
 figure;
 %clf(fig1);
 scatter(Y_train, Y_pred, 100,co(1,:),'filled');
-
 hold on;
 mdl = polyfit(Y_train, Y_pred,1);
 xrng = get(gca,'XLim');
@@ -78,7 +83,7 @@ ylabel('Predicted NF score');
 title(sprintf('LOOCV: rho = %.3f (p = %.3f)', rho, pval));
 
 
-
+ %AUC
 C_train = Y_train > median(Y_train);
 figure;
 %clf(fig1);
@@ -92,11 +97,11 @@ ylabel('True Positive Rate');
 title(sprintf('ROC Curve for validation (AUC = %.3f)',AUC));
 
 
-%
-%
-%
-[Xloadings,Yloadings,Xscores,Yscores,betaPLS] = plsregress(X_train(:,var_best),Y_train,1);
-Y_pred = [ones(size(X_test(:,var_best) ,1),1) X_test(:,var_best)]*betaPLS;
+%evaluate the best model using the independent dataset
+[Xloadings,Yloadings,Xscores,Yscores,betaPLS] = plsregress(X_train(:,var_best),Y_train,1); %training PLS model
+Y_pred = [ones(size(X_test(:,var_best) ,1),1) X_test(:,var_best)]*betaPLS; %prediction
+
+%scatter plot
 figure;
 %clf(fig1);
 scatter(Y_test, Y_pred, 100,co(2,:),'filled');
@@ -108,19 +113,13 @@ y1 = polyval(mdl,x1);
 plot(x1,y1,'k--');
 xlim(xrng);
 axis square;
-[rho, pval] = corr(Y_test, Y_pred, 'type', 'Spearman');
+[rho, pval] = corr(Y_test, Y_pred, 'type', 'Spearman'); %correlation between true and predicted NF score
 xlabel('True NF score');
 ylabel('Predicted NF score');
 title(sprintf('Validation: rho = %.3f (p = %.3f)', rho, pval));
 
 
-
-% X_test2 = FC_all(mask_mdd,var_best);
-% Y_test2 = NFscore_all(mask_mdd);
-% Y_pred2 = [ones(size(X_test2 ,1),1) X_test2]*betaPLS;
-% [rho2, pval2] = corr(Y_test2, Y_pred2, 'type', 'Spearman')
-% scatter(Y_test2, Y_pred2, 100,co(1,:),'filled');
-
+%AUC
 C_test = Y_test > median(Y_test);
 figure;
 %clf(fig1);
@@ -133,5 +132,4 @@ xlabel('False Positive Rate');
 ylabel('True Positive Rate');
 title(sprintf('ROC Curve for validation (AUC = %.3f)',AUC));
 
-%end
 
